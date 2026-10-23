@@ -1,44 +1,26 @@
-// LED 스트립(WS2812B/NeoPixel) + 스텝 모터 하드웨어 테스트 스케치
+// 단색 LED 스트립(MOSFET 구동) + 28BYJ-48/ULN2003 스텝 모터 테스트 스케치
 //
-// 필요 라이브러리: Adafruit NeoPixel (라이브러리 매니저에서 설치)
-// 시리얼 모니터: 115200 baud, 줄 끝 "Newline" 으로 설정 후 'h' 입력 → 명령 목록
+// 라이브러리 필요 없음
+// 시리얼 모니터: 115200 baud, 줄 끝 "LF" 로 설정 후 'h' 입력 → 명령 목록
 //
 // 아래 "설정" 부분만 실제 배선에 맞게 고치면 됩니다.
 
-#include <Adafruit_NeoPixel.h>
-
 // ===================== 설정 =====================
 
-// --- LED 스트립 ---
-#define LED_PIN        6     // 데이터 핀 (330Ω 직렬 저항 권장)
-#define NUM_LEDS       30    // LED 개수
-#define LED_BRIGHTNESS 50    // 0~255. USB 전원으로 테스트할 땐 낮게 유지
+// --- 단색 LED 스트립 (MOSFET 보드 게이트/SIG 핀) ---
+// PWM 가능한 핀이어야 밝기 조절이 됨 (Uno: 3, 5, 6, 9, 10, 11)
+#define LED_PIN        6
+#define LED_BRIGHTNESS 128   // 0~255 시작 밝기
 
-// --- 스텝 모터 드라이버 종류 (하나만 선택) ---
-#define DRIVER_STEP_DIR 1    // A4988 / DRV8825 / TMC2208 등 (STEP/DIR 핀)
-#define DRIVER_ULN2003  2    // 28BYJ-48 + ULN2003 보드 (IN1~IN4 핀)
-#define STEPPER_DRIVER  DRIVER_ULN2003
-
-#if STEPPER_DRIVER == DRIVER_STEP_DIR
-  #define STEP_PIN       3
-  #define DIR_PIN        4
-  #define EN_PIN         5     // 드라이버 EN 핀 (LOW = 활성). 연결 안 했으면 -1
-  #define STEPS_PER_REV  200   // 1.8° 모터 풀스텝 기준. 마이크로스텝이면 곱해주기 (예: 1/16 → 3200)
-  #define DEFAULT_SPEED  400   // steps/sec
-#elif STEPPER_DRIVER == DRIVER_ULN2003
-  #define IN1_PIN        8
-  #define IN2_PIN        9
-  #define IN3_PIN        10
-  #define IN4_PIN        11
-  #define STEPS_PER_REV  4096  // 28BYJ-48 하프스텝 기준
-  #define DEFAULT_SPEED  600   // steps/sec (28BYJ-48 은 ~1000 이상이면 탈조)
-#else
-  #error "STEPPER_DRIVER 값을 DRIVER_STEP_DIR 또는 DRIVER_ULN2003 으로 설정하세요"
-#endif
+// --- 28BYJ-48 + ULN2003 ---
+#define IN1_PIN        8
+#define IN2_PIN        9
+#define IN3_PIN        10
+#define IN4_PIN        11
+#define STEPS_PER_REV  4096  // 하프스텝 기준
+#define DEFAULT_SPEED  400   // steps/sec (~800 이상이면 탈조 가능)
 
 // ================================================
-
-Adafruit_NeoPixel strip(NUM_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
 // ---------- 스텝 모터 (논블로킹) ----------
 
@@ -47,61 +29,38 @@ long position = 0;           // 현재 위치 (스텝)
 unsigned int stepSpeed = DEFAULT_SPEED;
 unsigned long lastStepUs = 0;
 
-#if STEPPER_DRIVER == DRIVER_ULN2003
 const uint8_t coilPins[4] = {IN1_PIN, IN2_PIN, IN3_PIN, IN4_PIN};
 const uint8_t halfStepSeq[8][4] = {
   {1, 0, 0, 0}, {1, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 1, 0},
   {0, 0, 1, 0}, {0, 0, 1, 1}, {0, 0, 0, 1}, {1, 0, 0, 1},
 };
 uint8_t seqIndex = 0;
-#endif
 
-void motorEnable(bool on) {
-#if STEPPER_DRIVER == DRIVER_STEP_DIR
-  if (EN_PIN >= 0) digitalWrite(EN_PIN, on ? LOW : HIGH);
-#else
-  if (!on) {
-    // 코일 전류 차단 (발열 방지)
-    for (uint8_t i = 0; i < 4; i++) digitalWrite(coilPins[i], LOW);
-  }
-#endif
+void motorRelease() {
+  // 코일 전류 차단 (발열 방지)
+  for (uint8_t i = 0; i < 4; i++) digitalWrite(coilPins[i], LOW);
 }
 
 void motorSetup() {
-#if STEPPER_DRIVER == DRIVER_STEP_DIR
-  pinMode(STEP_PIN, OUTPUT);
-  pinMode(DIR_PIN, OUTPUT);
-  if (EN_PIN >= 0) pinMode(EN_PIN, OUTPUT);
-#else
   for (uint8_t i = 0; i < 4; i++) pinMode(coilPins[i], OUTPUT);
-#endif
-  motorEnable(false);
+  motorRelease();
 }
 
 void motorStepOnce(bool forward) {
-#if STEPPER_DRIVER == DRIVER_STEP_DIR
-  digitalWrite(DIR_PIN, forward ? HIGH : LOW);
-  delayMicroseconds(2);
-  digitalWrite(STEP_PIN, HIGH);
-  delayMicroseconds(3);
-  digitalWrite(STEP_PIN, LOW);
-#else
   seqIndex = (seqIndex + (forward ? 1 : 7)) % 8;
   for (uint8_t i = 0; i < 4; i++) digitalWrite(coilPins[i], halfStepSeq[seqIndex][i]);
-#endif
   position += forward ? 1 : -1;
 }
 
 void motorMove(long steps) {
   if (steps == 0) return;
   stepsRemaining = steps;
-  motorEnable(true);
   lastStepUs = micros();
 }
 
 void motorStop() {
   stepsRemaining = 0;
-  motorEnable(false);
+  motorRelease();
 }
 
 void motorUpdate() {
@@ -115,53 +74,56 @@ void motorUpdate() {
   stepsRemaining += forward ? -1 : 1;
 
   if (stepsRemaining == 0) {
-    motorEnable(false);
+    motorRelease();
     Serial.print(F("[모터] 이동 완료, 위치 = "));
     Serial.println(position);
   }
 }
 
-// ---------- LED 스트립 ----------
+// 배선 점검: IN1~IN4 를 하나씩 1초간 켬.
+// ULN2003 보드의 LED A~D 가 순서대로 켜져야 정상.
+void coilTest() {
+  stepsRemaining = 0;
+  for (uint8_t i = 0; i < 4; i++) {
+    motorRelease();
+    digitalWrite(coilPins[i], HIGH);
+    Serial.print(F("[코일] IN"));
+    Serial.print(i + 1);
+    Serial.print(F(" (D"));
+    Serial.print(coilPins[i]);
+    Serial.println(F(") ON"));
+    delay(1000);
+  }
+  motorRelease();
+  Serial.println(F("[코일] 테스트 완료"));
+}
 
-enum LedMode { LED_STATIC, LED_RAINBOW, LED_CHASE, LED_WALK };
+// ---------- 단색 LED 스트립 ----------
+
+enum LedMode { LED_STATIC, LED_BREATHE, LED_BLINK };
 LedMode ledMode = LED_STATIC;
+uint8_t ledLevel = LED_BRIGHTNESS;   // 켤 때 밝기
 uint16_t ledFrame = 0;
 unsigned long lastLedMs = 0;
 
-void ledFill(uint8_t r, uint8_t g, uint8_t b) {
+void ledSet(uint8_t level) {
   ledMode = LED_STATIC;
-  strip.fill(strip.Color(r, g, b));
-  strip.show();
+  analogWrite(LED_PIN, level);
 }
 
 void ledUpdate() {
   if (ledMode == LED_STATIC) return;
   unsigned long now = millis();
-  if (now - lastLedMs < (ledMode == LED_WALK ? 100 : 20)) return;
+  if (now - lastLedMs < (ledMode == LED_BLINK ? 500 : 10)) return;
   lastLedMs = now;
 
-  switch (ledMode) {
-    case LED_RAINBOW:
-      for (uint16_t i = 0; i < NUM_LEDS; i++) {
-        uint16_t hue = (ledFrame * 256) + (i * 65536UL / NUM_LEDS);
-        strip.setPixelColor(i, strip.gamma32(strip.ColorHSV(hue)));
-      }
-      break;
-    case LED_CHASE:
-      strip.clear();
-      for (uint16_t i = (ledFrame / 3) % 3; i < NUM_LEDS; i += 3) {
-        strip.setPixelColor(i, strip.Color(255, 120, 0));
-      }
-      break;
-    case LED_WALK:
-      // LED 하나씩 켜서 끊긴 픽셀/개수 확인
-      strip.clear();
-      strip.setPixelColor(ledFrame % NUM_LEDS, strip.Color(255, 255, 255));
-      break;
-    default:
-      break;
+  if (ledMode == LED_BREATHE) {
+    // 0 → 255 → 0 삼각파 (약 5초 주기)
+    uint16_t t = ledFrame % 510;
+    analogWrite(LED_PIN, t < 255 ? t : 510 - t);
+  } else {
+    analogWrite(LED_PIN, (ledFrame & 1) ? 0 : ledLevel);
   }
-  strip.show();
   ledFrame++;
 }
 
@@ -170,20 +132,14 @@ void ledUpdate() {
 void autoTest() {
   Serial.println(F("=== 자동 테스트 시작 ==="));
 
-  Serial.println(F("[LED] 빨강 → 초록 → 파랑 → 흰색"));
-  ledFill(255, 0, 0);     delay(700);
-  ledFill(0, 255, 0);     delay(700);
-  ledFill(0, 0, 255);     delay(700);
-  ledFill(255, 255, 255); delay(700);
+  Serial.println(F("[LED] 켜기 → 끄기 → 켜기"));
+  ledSet(255); delay(700);
+  ledSet(0);   delay(700);
+  ledSet(255); delay(700);
 
-  Serial.println(F("[LED] 픽셀 하나씩 점등 (끊긴 LED 확인)"));
-  for (uint16_t i = 0; i < NUM_LEDS; i++) {
-    strip.clear();
-    strip.setPixelColor(i, strip.Color(0, 0, 255));
-    strip.show();
-    delay(40);
-  }
-  ledFill(0, 0, 0);
+  Serial.println(F("[LED] 밝기 0 → 255 서서히"));
+  for (int v = 0; v <= 255; v += 5) { analogWrite(LED_PIN, v); delay(30); }
+  ledSet(0);
 
   Serial.println(F("[모터] 정방향 1바퀴"));
   motorMove(STEPS_PER_REV);
@@ -194,13 +150,14 @@ void autoTest() {
   motorMove(-STEPS_PER_REV);
   while (stepsRemaining != 0) motorUpdate();
 
-  Serial.println(F("[동시] 모터 반 바퀴 왕복 + 무지개 LED"));
-  ledMode = LED_RAINBOW;
+  Serial.println(F("[동시] 모터 반 바퀴 왕복 + LED 숨쉬기"));
+  ledMode = LED_BREATHE;
+  ledFrame = 0;
   motorMove(STEPS_PER_REV / 2);
   while (stepsRemaining != 0) { motorUpdate(); ledUpdate(); }
   motorMove(-STEPS_PER_REV / 2);
   while (stepsRemaining != 0) { motorUpdate(); ledUpdate(); }
-  ledFill(0, 0, 0);
+  ledSet(0);
 
   Serial.println(F("=== 자동 테스트 완료 ==="));
 }
@@ -210,13 +167,12 @@ void autoTest() {
 void printHelp() {
   Serial.println(F("--- 명령 목록 ---"));
   Serial.println(F(" t          : 자동 테스트 (LED + 모터)"));
-  Serial.println(F(" r / g / b / w : LED 빨강/초록/파랑/흰색"));
-  Serial.println(F(" o          : LED 끄기"));
-  Serial.println(F(" a          : 무지개 애니메이션"));
-  Serial.println(F(" c          : 체이스 애니메이션"));
-  Serial.println(F(" k          : LED 하나씩 이동 (불량 픽셀 확인)"));
-  Serial.println(F(" B <0-255>  : 밝기 설정"));
-  Serial.println(F(" m <스텝>   : 모터 이동 (음수 = 역방향), 예) m 200, m -200"));
+  Serial.println(F(" n / o      : LED 켜기 / 끄기"));
+  Serial.println(F(" L <0-255>  : LED 밝기 설정 후 켜기"));
+  Serial.println(F(" a          : LED 숨쉬기 (서서히 밝아졌다 어두워짐)"));
+  Serial.println(F(" k          : LED 깜빡이기"));
+  Serial.println(F(" q          : 코일 배선 점검 (IN1~IN4 하나씩 1초)"));
+  Serial.println(F(" m <스텝>   : 모터 이동 (음수 = 역방향), 예) m 512, m -512"));
   Serial.println(F(" R <바퀴>   : 모터 N바퀴 회전 (음수 = 역방향)"));
   Serial.println(F(" s <속도>   : 모터 속도 steps/sec"));
   Serial.println(F(" x          : 모터 정지 + 전원 해제"));
@@ -225,9 +181,11 @@ void printHelp() {
 }
 
 void printStatus() {
-  Serial.print(F("LED 개수=")); Serial.print(NUM_LEDS);
-  Serial.print(F(", 밝기="));   Serial.print(strip.getBrightness());
-  Serial.print(F(" | 모터 위치=")); Serial.print(position);
+  Serial.print(F("LED 핀=D")); Serial.print(LED_PIN);
+  Serial.print(F(", 밝기="));   Serial.print(ledLevel);
+  Serial.print(F(" | 모터 IN1~4=D")); Serial.print(IN1_PIN);
+  Serial.print(F("~D"));        Serial.print(IN4_PIN);
+  Serial.print(F(", 위치="));   Serial.print(position);
   Serial.print(F(", 남은 스텝=")); Serial.print(stepsRemaining);
   Serial.print(F(", 속도="));   Serial.print(stepSpeed);
   Serial.print(F(" steps/s, 1바퀴=")); Serial.print(STEPS_PER_REV);
@@ -242,18 +200,15 @@ void handleCommand(char *line) {
 
   switch (cmd) {
     case 't': autoTest(); break;
-    case 'r': ledFill(255, 0, 0); break;
-    case 'g': ledFill(0, 255, 0); break;
-    case 'b': ledFill(0, 0, 255); break;
-    case 'w': ledFill(255, 255, 255); break;
-    case 'o': ledFill(0, 0, 0); break;
-    case 'a': ledMode = LED_RAINBOW; break;
-    case 'c': ledMode = LED_CHASE; break;
-    case 'k': ledMode = LED_WALK; ledFrame = 0; break;
-    case 'B':
-      strip.setBrightness(constrain(arg, 0, 255));
-      strip.show();
+    case 'n': ledSet(ledLevel); break;
+    case 'o': ledSet(0); break;
+    case 'L':
+      ledLevel = constrain(arg, 0, 255);
+      ledSet(ledLevel);
       break;
+    case 'a': ledMode = LED_BREATHE; ledFrame = 0; break;
+    case 'k': ledMode = LED_BLINK; ledFrame = 0; break;
+    case 'q': coilTest(); break;
     case 'm': motorMove(arg); break;
     case 'R': motorMove(arg * STEPS_PER_REV); break;
     case 's':
@@ -290,12 +245,11 @@ void readSerial() {
 
 void setup() {
   Serial.begin(115200);
-  strip.begin();
-  strip.setBrightness(LED_BRIGHTNESS);
-  strip.show();
+  pinMode(LED_PIN, OUTPUT);
+  ledSet(0);
   motorSetup();
 
-  Serial.println(F("LED 스트립 + 스텝 모터 테스트"));
+  Serial.println(F("단색 LED 스트립 + 28BYJ-48 테스트"));
   printHelp();
 }
 
