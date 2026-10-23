@@ -13,10 +13,10 @@
 #define LED_BRIGHTNESS 128   // 0~255 시작 밝기
 
 // --- 28BYJ-48 + ULN2003 ---
-#define IN1_PIN        8
-#define IN2_PIN        9
-#define IN3_PIN        10
-#define IN4_PIN        11
+#define IN1_PIN        2
+#define IN2_PIN        3
+#define IN3_PIN        4
+#define IN4_PIN        5
 #define STEPS_PER_REV  4096  // 하프스텝 기준
 #define DEFAULT_SPEED  400   // steps/sec (~800 이상이면 탈조 가능)
 
