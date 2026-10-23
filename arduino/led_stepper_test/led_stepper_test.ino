@@ -10,7 +10,8 @@
 // --- 단색 LED 스트립 (MOSFET 보드 게이트/SIG 핀) ---
 // PWM 가능한 핀이어야 밝기 조절이 됨 (Uno: 3, 5, 6, 9, 10, 11)
 #define LED_PIN        6
-#define LED_BRIGHTNESS 1     // 0~255 시작 밝기 (n 으로 켤 때, 전원 켤 때)
+#define LED_BRIGHTNESS 1     // 0~255 'n' 으로 켤 때 밝기
+#define FLAME_PEAK     20    // 불꽃 효과 최대 밝기 (1~255). 낮을수록 어두움
 
 // 전원 켜면 바로 불꽃 LED + 모터 연속 회전 시작 (0 = 명령 올 때까지 대기)
 #define AUTO_RUN       1
@@ -183,7 +184,7 @@ const uint8_t breatheLevels[] = {1, 50, 100, 150, 200, 250};
 unsigned int breatheHoldMs = 1000;   // 단계마다 유지 시간
 
 // 불꽃: 무작위 목표 밝기로 부드럽게 따라가며 가끔 크게 일렁임
-uint8_t flamePeak = 255;      // 불꽃 최대 밝기
+uint8_t flamePeak = FLAME_PEAK;  // 불꽃 최대 밝기
 int flameLevel = 0;           // 현재 밝기 (0~255, peak 적용 전)
 int flameTarget = 180;
 unsigned long nextFlameTargetMs = 0;
@@ -279,7 +280,7 @@ void printHelp() {
   Serial.println(F(" L <0-255>  : LED 밝기 설정 후 켜기"));
   Serial.println(F(" a [ms]     : LED 숨쉬기 1→50→100→150→200→250→...→1 (단계 유지시간, 기본 1000)"));
   Serial.println(F(" k          : LED 깜빡이기"));
-  Serial.println(F(" f [0-255]  : LED 불꽃 일렁임 (최대 밝기, 기본 255)"));
+  Serial.println(F(" f [1-255]  : LED 불꽃 일렁임 (최대 밝기, 기본 20)"));
   Serial.println(F(" q          : 코일 배선 점검 (IN1~IN4 하나씩 1초)"));
   Serial.println(F(" m <스텝>   : 모터 이동 (음수 = 역방향), 예) m 512, m -512"));
   Serial.println(F(" R <바퀴>   : 모터 N바퀴 회전 (음수 = 역방향)"));
@@ -390,10 +391,11 @@ void setup() {
 
   randomSeed(analogRead(A0));
 #if AUTO_RUN
-  // 밝기 1 은 PWM 최저 단계라 불꽃처럼 일렁일 여지가 없어 고정 점등 (불꽃: f)
-  ledSet(ledLevel);
+  ledMode = LED_FLAME;
   motorRun(true);
-  Serial.println(F("[자동] LED 밝기 1 + 모터 연속 회전 시작 (정지: x, LED 끄기: o, 불꽃: f)"));
+  Serial.print(F("[자동] 어두운 불꽃 LED (최대 밝기 "));
+  Serial.print(flamePeak);
+  Serial.println(F(") + 모터 연속 회전 시작 (정지: x, LED 끄기: o)"));
 #endif
 }
 
