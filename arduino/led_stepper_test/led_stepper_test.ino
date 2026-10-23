@@ -90,20 +90,28 @@ void motorRelease() {
   for (uint8_t i = 0; i < 4; i++) digitalWrite(coilPins[i], LOW);
 }
 
-void motorSetup() {
-  for (uint8_t i = 0; i < 4; i++) pinMode(coilPins[i], OUTPUT);
 #if MICROSTEPS > 0
+bool constantCurrent = CONSTANT_CURRENT;
+
+void buildSineTable() {
   // 사인 양의 반쪽만 사용 (음수는 0) → 반대편 코일이 나머지 반쪽 담당
   for (uint8_t i = 0; i < SEQ_LEN; i++) {
     float th = 2.0 * PI * i / SEQ_LEN;
     float s = sin(th);
-#if CONSTANT_CURRENT
-    // |sin|+|cos| 로 나눠 켜진 두 코일 듀티 합이 항상 255 가 되게 함.
-    // 분모가 90° 주기라 cos 쪽 코일도 같은 테이블을 오프셋으로 쓸 수 있음
-    s /= fabs(sin(th)) + fabs(cos(th));
-#endif
+    if (constantCurrent) {
+      // |sin|+|cos| 로 나눠 켜진 두 코일 듀티 합이 항상 255 가 되게 함.
+      // 분모가 90° 주기라 cos 쪽 코일도 같은 테이블을 오프셋으로 쓸 수 있음
+      s /= fabs(sin(th)) + fabs(cos(th));
+    }
     sineTable[i] = s > 0 ? (uint8_t)(s * 255 + 0.5) : 0;
   }
+}
+#endif
+
+void motorSetup() {
+  for (uint8_t i = 0; i < 4; i++) pinMode(coilPins[i], OUTPUT);
+#if MICROSTEPS > 0
+  buildSineTable();
   // D9/D10(Timer1), D11/D3(Timer2) PWM 을 490Hz → 31kHz 로 (윙 소리 제거).
   // Timer0(D5, D6, millis)은 건드리지 않음
   TCCR1B = (TCCR1B & 0xF8) | 0x01;
@@ -295,6 +303,7 @@ void printHelp() {
   Serial.println(F(" R <바퀴>   : 모터 N바퀴 회전 (음수 = 역방향)"));
   Serial.println(F(" g / G      : 모터 계속 회전 정방향 / 역방향 ('x' 로 정지)"));
   Serial.println(F(" v <RPM>    : 모터 속도 RPM (소수 가능, 예: v 0.5, v 3)"));
+  Serial.println(F(" c 1 / c 0  : 전류 일정 모드 켜기 / 끄기 (끄면 토크↑, LED 출렁임↑)"));
   Serial.println(F(" s <속도>   : 모터 속도 steps/sec"));
   Serial.println(F(" x          : 모터 정지 + 전원 해제"));
   Serial.println(F(" p          : 현재 상태 출력"));
@@ -310,6 +319,9 @@ void printStatus() {
     Serial.print(coilPins[i]);
   }
   Serial.print(F(", 마이크로스텝=")); Serial.print(MICROSTEPS);
+#if MICROSTEPS > 0
+  Serial.print(F(", 전류일정=")); Serial.print(constantCurrent);
+#endif
   Serial.print(F(", 위치="));   Serial.print(position);
   Serial.print(F(", 남은 스텝=")); Serial.print(stepsRemaining);
   Serial.print(F(", 속도="));   Serial.print(stepSpeed);
@@ -353,6 +365,13 @@ void handleCommand(char *line) {
     case 's':
       if (arg > 0) stepSpeed = arg;
       break;
+#if MICROSTEPS > 0
+    case 'c':
+      constantCurrent = arg != 0;
+      buildSineTable();
+      if (motorContinuous || stepsRemaining != 0) applyPhase();
+      break;
+#endif
     case 'v': {
       // RPM 으로 속도 지정 (소수 가능: v 0.5)
       float rpm = atof(line + 1);
