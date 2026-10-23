@@ -156,6 +156,11 @@ uint8_t ledLevel = LED_BRIGHTNESS;   // 켤 때 밝기
 uint16_t ledFrame = 0;
 unsigned long lastLedMs = 0;
 
+// 숨쉬기: 아래 밝기를 올라갔다 내려오며 순서대로 표시
+const uint8_t breatheLevels[] = {1, 50, 100, 150, 200, 250};
+#define BREATHE_COUNT (sizeof(breatheLevels) / sizeof(breatheLevels[0]))
+unsigned int breatheHoldMs = 1000;   // 단계마다 유지 시간
+
 void ledSet(uint8_t level) {
   ledMode = LED_STATIC;
   analogWrite(LED_PIN, level);
@@ -164,13 +169,17 @@ void ledSet(uint8_t level) {
 void ledUpdate() {
   if (ledMode == LED_STATIC) return;
   unsigned long now = millis();
-  if (now - lastLedMs < (ledMode == LED_BLINK ? 500 : 10)) return;
+  if (ledFrame > 0 && now - lastLedMs < (ledMode == LED_BLINK ? 500 : breatheHoldMs)) return;
   lastLedMs = now;
 
   if (ledMode == LED_BREATHE) {
-    // 0 → 255 → 0 삼각파 (약 5초 주기)
-    uint16_t t = ledFrame % 510;
-    analogWrite(LED_PIN, t < 255 ? t : 510 - t);
+    // 1 → 50 → ... → 250 → ... → 50 → 1 반복
+    uint8_t period = 2 * (BREATHE_COUNT - 1);
+    uint8_t i = ledFrame % period;
+    if (i >= BREATHE_COUNT) i = period - i;
+    analogWrite(LED_PIN, breatheLevels[i]);
+    Serial.print(F("[LED] 밝기 "));
+    Serial.println(breatheLevels[i]);
   } else {
     analogWrite(LED_PIN, (ledFrame & 1) ? 0 : ledLevel);
   }
@@ -203,11 +212,13 @@ void autoTest() {
   Serial.println(F("[동시] 모터 반 바퀴 왕복 + LED 숨쉬기"));
   ledMode = LED_BREATHE;
   ledFrame = 0;
+  breatheHoldMs = 300;
   motorMove(STEPS_PER_REV / 2);
   while (stepsRemaining != 0) { motorUpdate(); ledUpdate(); }
   motorMove(-STEPS_PER_REV / 2);
   while (stepsRemaining != 0) { motorUpdate(); ledUpdate(); }
   ledSet(0);
+  breatheHoldMs = 1000;
 
   Serial.println(F("=== 자동 테스트 완료 ==="));
 }
@@ -219,7 +230,7 @@ void printHelp() {
   Serial.println(F(" t          : 자동 테스트 (LED + 모터)"));
   Serial.println(F(" n / o      : LED 켜기 / 끄기"));
   Serial.println(F(" L <0-255>  : LED 밝기 설정 후 켜기"));
-  Serial.println(F(" a          : LED 숨쉬기 (서서히 밝아졌다 어두워짐)"));
+  Serial.println(F(" a [ms]     : LED 숨쉬기 1→50→100→150→200→250→...→1 (단계 유지시간, 기본 1000)"));
   Serial.println(F(" k          : LED 깜빡이기"));
   Serial.println(F(" q          : 코일 배선 점검 (IN1~IN4 하나씩 1초)"));
   Serial.println(F(" m <스텝>   : 모터 이동 (음수 = 역방향), 예) m 512, m -512"));
@@ -260,7 +271,11 @@ void handleCommand(char *line) {
       ledLevel = constrain(arg, 0, 255);
       ledSet(ledLevel);
       break;
-    case 'a': ledMode = LED_BREATHE; ledFrame = 0; break;
+    case 'a':
+      if (arg > 0) breatheHoldMs = arg;
+      ledMode = LED_BREATHE;
+      ledFrame = 0;
+      break;
     case 'k': ledMode = LED_BLINK; ledFrame = 0; break;
     case 'q': coilTest(); break;
     case 'm': motorMove(arg); break;
