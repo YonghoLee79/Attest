@@ -12,6 +12,9 @@
 #define LED_PIN        6
 #define LED_BRIGHTNESS 128   // 0~255 시작 밝기
 
+// 전원 켜면 바로 불꽃 LED + 모터 연속 회전 시작 (0 = 명령 올 때까지 대기)
+#define AUTO_RUN       1
+
 // --- 28BYJ-48 + ULN2003 ---
 // MICROSTEPS: 풀스텝 1개를 몇 개로 나눌지 (2, 4, 8, 16). 0 = 기존 하프스텝 방식
 // 마이크로스텝은 PWM 으로 코일 전류를 조절하므로 IN1~IN4 가
@@ -42,6 +45,8 @@ long stepsRemaining = 0;     // 남은 스텝 수 (부호 = 방향)
 long position = 0;           // 현재 위치 (스텝)
 unsigned int stepSpeed = DEFAULT_SPEED;
 unsigned long lastStepUs = 0;
+bool motorContinuous = false;  // true 면 'x' 할 때까지 계속 회전
+bool motorForward = true;
 
 const uint8_t coilPins[4] = {IN1_PIN, IN2_PIN, IN3_PIN, IN4_PIN};
 
@@ -103,21 +108,35 @@ void motorStepOnce(bool forward) {
 }
 
 void motorMove(long steps) {
+  motorContinuous = false;
   if (steps == 0) return;
   stepsRemaining = steps;
   lastStepUs = micros();
 }
 
+void motorRun(bool forward) {
+  stepsRemaining = 0;
+  motorContinuous = true;
+  motorForward = forward;
+  lastStepUs = micros();
+}
+
 void motorStop() {
+  motorContinuous = false;
   stepsRemaining = 0;
   motorRelease();
 }
 
 void motorUpdate() {
-  if (stepsRemaining == 0) return;
+  if (!motorContinuous && stepsRemaining == 0) return;
   unsigned long now = micros();
   if (now - lastStepUs < 1000000UL / stepSpeed) return;
   lastStepUs = now;
+
+  if (motorContinuous) {
+    motorStepOnce(motorForward);
+    return;
+  }
 
   bool forward = stepsRemaining > 0;
   motorStepOnce(forward);
@@ -133,6 +152,7 @@ void motorUpdate() {
 // 배선 점검: IN1~IN4 를 하나씩 1초간 켬.
 // ULN2003 보드의 LED A~D 가 순서대로 켜져야 정상.
 void coilTest() {
+  motorContinuous = false;
   stepsRemaining = 0;
   for (uint8_t i = 0; i < 4; i++) {
     motorRelease();
@@ -150,7 +170,7 @@ void coilTest() {
 
 // ---------- 단색 LED 스트립 ----------
 
-enum LedMode { LED_STATIC, LED_BREATHE, LED_BLINK };
+enum LedMode { LED_STATIC, LED_BREATHE, LED_BLINK, LED_FLAME };
 LedMode ledMode = LED_STATIC;
 uint8_t ledLevel = LED_BRIGHTNESS;   // 켤 때 밝기
 uint16_t ledFrame = 0;
@@ -161,6 +181,26 @@ const uint8_t breatheLevels[] = {1, 50, 100, 150, 200, 250};
 #define BREATHE_COUNT (sizeof(breatheLevels) / sizeof(breatheLevels[0]))
 unsigned int breatheHoldMs = 1000;   // 단계마다 유지 시간
 
+// 불꽃: 무작위 목표 밝기로 부드럽게 따라가며 가끔 크게 일렁임
+uint8_t flamePeak = 255;      // 불꽃 최대 밝기
+int flameLevel = 0;           // 현재 밝기 (0~255, peak 적용 전)
+int flameTarget = 180;
+unsigned long nextFlameTargetMs = 0;
+
+void flameUpdate(unsigned long now) {
+  if (now >= nextFlameTargetMs) {
+    if (random(12) == 0) {
+      flameTarget = random(40, 110);    // 가끔 크게 사그라듦
+    } else {
+      flameTarget = random(150, 256);   // 평소 일렁임
+    }
+    nextFlameTargetMs = now + random(40, 150);
+  }
+  // 목표 쪽으로 30% 씩 이동 → 깜빡임 없이 출렁임
+  flameLevel += (flameTarget - flameLevel) * 3 / 10;
+  analogWrite(LED_PIN, (uint16_t)flameLevel * flamePeak / 255);
+}
+
 void ledSet(uint8_t level) {
   ledMode = LED_STATIC;
   analogWrite(LED_PIN, level);
@@ -169,10 +209,13 @@ void ledSet(uint8_t level) {
 void ledUpdate() {
   if (ledMode == LED_STATIC) return;
   unsigned long now = millis();
-  if (ledFrame > 0 && now - lastLedMs < (ledMode == LED_BLINK ? 500 : breatheHoldMs)) return;
+  unsigned int interval = ledMode == LED_BLINK ? 500 : ledMode == LED_FLAME ? 15 : breatheHoldMs;
+  if (ledFrame > 0 && now - lastLedMs < interval) return;
   lastLedMs = now;
 
-  if (ledMode == LED_BREATHE) {
+  if (ledMode == LED_FLAME) {
+    flameUpdate(now);
+  } else if (ledMode == LED_BREATHE) {
     // 1 → 50 → ... → 250 → ... → 50 → 1 반복
     uint8_t period = 2 * (BREATHE_COUNT - 1);
     uint8_t i = ledFrame % period;
@@ -232,9 +275,11 @@ void printHelp() {
   Serial.println(F(" L <0-255>  : LED 밝기 설정 후 켜기"));
   Serial.println(F(" a [ms]     : LED 숨쉬기 1→50→100→150→200→250→...→1 (단계 유지시간, 기본 1000)"));
   Serial.println(F(" k          : LED 깜빡이기"));
+  Serial.println(F(" f [0-255]  : LED 불꽃 일렁임 (최대 밝기, 기본 255)"));
   Serial.println(F(" q          : 코일 배선 점검 (IN1~IN4 하나씩 1초)"));
   Serial.println(F(" m <스텝>   : 모터 이동 (음수 = 역방향), 예) m 512, m -512"));
   Serial.println(F(" R <바퀴>   : 모터 N바퀴 회전 (음수 = 역방향)"));
+  Serial.println(F(" g / G      : 모터 계속 회전 정방향 / 역방향 ('x' 로 정지)"));
   Serial.println(F(" s <속도>   : 모터 속도 steps/sec"));
   Serial.println(F(" x          : 모터 정지 + 전원 해제"));
   Serial.println(F(" p          : 현재 상태 출력"));
@@ -277,6 +322,13 @@ void handleCommand(char *line) {
       ledFrame = 0;
       break;
     case 'k': ledMode = LED_BLINK; ledFrame = 0; break;
+    case 'f':
+      if (arg > 0) flamePeak = constrain(arg, 1, 255);
+      ledMode = LED_FLAME;
+      ledFrame = 0;
+      break;
+    case 'g': motorRun(true); break;
+    case 'G': motorRun(false); break;
     case 'q': coilTest(); break;
     case 'm': motorMove(arg); break;
     case 'R': motorMove(arg * STEPS_PER_REV); break;
@@ -320,6 +372,13 @@ void setup() {
 
   Serial.println(F("단색 LED 스트립 + 28BYJ-48 테스트"));
   printHelp();
+
+  randomSeed(analogRead(A0));
+#if AUTO_RUN
+  ledMode = LED_FLAME;
+  motorRun(true);
+  Serial.println(F("[자동] 불꽃 LED + 모터 연속 회전 시작 (정지: x, LED 끄기: o)"));
+#endif
 }
 
 void loop() {
