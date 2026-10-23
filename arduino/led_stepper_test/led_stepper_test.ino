@@ -21,6 +21,9 @@
 // 마이크로스텝은 PWM 으로 코일 전류를 조절하므로 IN1~IN4 가
 // 반드시 D9, D10, D11, D3 이어야 함 (31kHz PWM 으로 바꿔서 소음 없음)
 #define MICROSTEPS     16
+// 1 = 두 코일 전류 합을 항상 일정하게 → 전원 출렁임(LED 깜빡임) 감소, 토크 약간 감소
+// 0 = 순수 사인파 → 토크/부드러움 최대, 전류 합이 회전각에 따라 1.0~1.4배로 변함
+#define CONSTANT_CURRENT 1
 
 #if MICROSTEPS > 0
   #define IN1_PIN        9
@@ -92,7 +95,13 @@ void motorSetup() {
 #if MICROSTEPS > 0
   // 사인 양의 반쪽만 사용 (음수는 0) → 반대편 코일이 나머지 반쪽 담당
   for (uint8_t i = 0; i < SEQ_LEN; i++) {
-    float s = sin(2.0 * PI * i / SEQ_LEN);
+    float th = 2.0 * PI * i / SEQ_LEN;
+    float s = sin(th);
+#if CONSTANT_CURRENT
+    // |sin|+|cos| 로 나눠 켜진 두 코일 듀티 합이 항상 255 가 되게 함.
+    // 분모가 90° 주기라 cos 쪽 코일도 같은 테이블을 오프셋으로 쓸 수 있음
+    s /= fabs(sin(th)) + fabs(cos(th));
+#endif
     sineTable[i] = s > 0 ? (uint8_t)(s * 255 + 0.5) : 0;
   }
   // D9/D10(Timer1), D11/D3(Timer2) PWM 을 490Hz → 31kHz 로 (윙 소리 제거).
