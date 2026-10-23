@@ -17,7 +17,7 @@
 // --- 스텝 모터 드라이버 종류 (하나만 선택) ---
 #define DRIVER_STEP_DIR 1    // A4988 / DRV8825 / TMC2208 등 (STEP/DIR 핀)
 #define DRIVER_ULN2003  2    // 28BYJ-48 + ULN2003 보드 (IN1~IN4 핀)
-#define STEPPER_DRIVER  DRIVER_STEP_DIR
+#define STEPPER_DRIVER  DRIVER_ULN2003
 
 #if STEPPER_DRIVER == DRIVER_STEP_DIR
   #define STEP_PIN       3
