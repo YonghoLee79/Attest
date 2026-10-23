@@ -19,7 +19,7 @@
 // MICROSTEPS: 풀스텝 1개를 몇 개로 나눌지 (2, 4, 8, 16). 0 = 기존 하프스텝 방식
 // 마이크로스텝은 PWM 으로 코일 전류를 조절하므로 IN1~IN4 가
 // 반드시 D9, D10, D11, D3 이어야 함 (31kHz PWM 으로 바꿔서 소음 없음)
-#define MICROSTEPS     8
+#define MICROSTEPS     16
 
 #if MICROSTEPS > 0
   #define IN1_PIN        9
@@ -27,7 +27,8 @@
   #define IN3_PIN        11
   #define IN4_PIN        3
   #define STEPS_PER_REV  (2048L * MICROSTEPS)
-  #define DEFAULT_SPEED  (250 * MICROSTEPS)  // steps/sec (풀스텝 250/s ≈ 7 RPM)
+  #define DEFAULT_RPM    1.0                // 천천히: 1분에 1바퀴
+  #define DEFAULT_SPEED  ((unsigned int)(STEPS_PER_REV * DEFAULT_RPM / 60))
 #else
   #define IN1_PIN        2
   #define IN2_PIN        3
@@ -233,6 +234,8 @@ void ledUpdate() {
 
 void autoTest() {
   Serial.println(F("=== 자동 테스트 시작 ==="));
+  unsigned int savedSpeed = stepSpeed;
+  stepSpeed = 250 * (MICROSTEPS > 0 ? MICROSTEPS : 2);   // 테스트는 빠르게 (~7 RPM)
 
   Serial.println(F("[LED] 켜기 → 끄기 → 켜기"));
   ledSet(255); delay(700);
@@ -263,6 +266,7 @@ void autoTest() {
   ledSet(0);
   breatheHoldMs = 1000;
 
+  stepSpeed = savedSpeed;
   Serial.println(F("=== 자동 테스트 완료 ==="));
 }
 
@@ -280,6 +284,7 @@ void printHelp() {
   Serial.println(F(" m <스텝>   : 모터 이동 (음수 = 역방향), 예) m 512, m -512"));
   Serial.println(F(" R <바퀴>   : 모터 N바퀴 회전 (음수 = 역방향)"));
   Serial.println(F(" g / G      : 모터 계속 회전 정방향 / 역방향 ('x' 로 정지)"));
+  Serial.println(F(" v <RPM>    : 모터 속도 RPM (소수 가능, 예: v 0.5, v 3)"));
   Serial.println(F(" s <속도>   : 모터 속도 steps/sec"));
   Serial.println(F(" x          : 모터 정지 + 전원 해제"));
   Serial.println(F(" p          : 현재 상태 출력"));
@@ -298,7 +303,10 @@ void printStatus() {
   Serial.print(F(", 위치="));   Serial.print(position);
   Serial.print(F(", 남은 스텝=")); Serial.print(stepsRemaining);
   Serial.print(F(", 속도="));   Serial.print(stepSpeed);
-  Serial.print(F(" steps/s, 1바퀴=")); Serial.print(STEPS_PER_REV);
+  Serial.print(F(" steps/s ("));
+  Serial.print(stepSpeed * 60.0 / STEPS_PER_REV, 2);
+  Serial.print(F(" RPM)"));
+  Serial.print(F(", 1바퀴=")); Serial.print(STEPS_PER_REV);
   Serial.println(F(" steps"));
 }
 
@@ -334,6 +342,13 @@ void handleCommand(char *line) {
     case 'R': motorMove(arg * STEPS_PER_REV); break;
     case 's':
       if (arg > 0) stepSpeed = arg;
+      break;
+    case 'v': {
+      // RPM 으로 속도 지정 (소수 가능: v 0.5)
+      float rpm = atof(line + 1);
+      if (rpm > 0) stepSpeed = max(1L, (long)(rpm * STEPS_PER_REV / 60));
+      break;
+    }
       break;
     case 'x': motorStop(); Serial.println(F("[모터] 정지")); break;
     case 'p': printStatus(); break;
