@@ -10,7 +10,7 @@
 // --- 단색 LED 스트립 (MOSFET 보드 게이트/SIG 핀) ---
 // PWM 가능한 핀이어야 밝기 조절이 됨 (Uno: 3, 5, 6, 9, 10, 11)
 #define LED_PIN        6
-#define LED_BRIGHTNESS 128   // 0~255 시작 밝기
+#define LED_BRIGHTNESS 1     // 0~255 시작 밝기 (n 으로 켤 때, 전원 켤 때)
 
 // 전원 켜면 바로 불꽃 LED + 모터 연속 회전 시작 (0 = 명령 올 때까지 대기)
 #define AUTO_RUN       1
@@ -390,9 +390,10 @@ void setup() {
 
   randomSeed(analogRead(A0));
 #if AUTO_RUN
-  ledMode = LED_FLAME;
+  // 밝기 1 은 PWM 최저 단계라 불꽃처럼 일렁일 여지가 없어 고정 점등 (불꽃: f)
+  ledSet(ledLevel);
   motorRun(true);
-  Serial.println(F("[자동] 불꽃 LED + 모터 연속 회전 시작 (정지: x, LED 끄기: o)"));
+  Serial.println(F("[자동] LED 밝기 1 + 모터 연속 회전 시작 (정지: x, LED 끄기: o, 불꽃: f)"));
 #endif
 }
 
