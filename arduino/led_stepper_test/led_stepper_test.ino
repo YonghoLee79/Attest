@@ -13,12 +13,26 @@
 #define LED_BRIGHTNESS 128   // 0~255 시작 밝기
 
 // --- 28BYJ-48 + ULN2003 ---
-#define IN1_PIN        2
-#define IN2_PIN        3
-#define IN3_PIN        4
-#define IN4_PIN        5
-#define STEPS_PER_REV  4096  // 하프스텝 기준
-#define DEFAULT_SPEED  400   // steps/sec (~800 이상이면 탈조 가능)
+// MICROSTEPS: 풀스텝 1개를 몇 개로 나눌지 (2, 4, 8, 16). 0 = 기존 하프스텝 방식
+// 마이크로스텝은 PWM 으로 코일 전류를 조절하므로 IN1~IN4 가
+// 반드시 D9, D10, D11, D3 이어야 함 (31kHz PWM 으로 바꿔서 소음 없음)
+#define MICROSTEPS     8
+
+#if MICROSTEPS > 0
+  #define IN1_PIN        9
+  #define IN2_PIN        10
+  #define IN3_PIN        11
+  #define IN4_PIN        3
+  #define STEPS_PER_REV  (2048L * MICROSTEPS)
+  #define DEFAULT_SPEED  (250 * MICROSTEPS)  // steps/sec (풀스텝 250/s ≈ 7 RPM)
+#else
+  #define IN1_PIN        2
+  #define IN2_PIN        3
+  #define IN3_PIN        4
+  #define IN4_PIN        5
+  #define STEPS_PER_REV  4096L  // 하프스텝 기준
+  #define DEFAULT_SPEED  400    // steps/sec (~800 이상이면 탈조 가능)
+#endif
 
 // ================================================
 
@@ -30,11 +44,36 @@ unsigned int stepSpeed = DEFAULT_SPEED;
 unsigned long lastStepUs = 0;
 
 const uint8_t coilPins[4] = {IN1_PIN, IN2_PIN, IN3_PIN, IN4_PIN};
+
+#if MICROSTEPS > 0
+// 전기각 1주기(풀스텝 4개)를 4*MICROSTEPS 칸으로 나눈 사인 테이블.
+// IN1=A, IN2=B, IN3=A', IN4=B' 순서라 A=cos, B=sin 의 양/음 반쪽을 각 코일에 줌
+#define SEQ_LEN (4 * MICROSTEPS)
+uint8_t sineTable[SEQ_LEN];
+uint8_t seqIndex = 0;
+
+void applyPhase() {
+  uint8_t a  = sineTable[(seqIndex + MICROSTEPS) % SEQ_LEN];  // cos
+  uint8_t b  = sineTable[seqIndex];                            // sin
+  uint8_t na = sineTable[(seqIndex + 3 * MICROSTEPS) % SEQ_LEN];  // -cos
+  uint8_t nb = sineTable[(seqIndex + 2 * MICROSTEPS) % SEQ_LEN];  // -sin
+  analogWrite(IN1_PIN, a);
+  analogWrite(IN2_PIN, b);
+  analogWrite(IN3_PIN, na);
+  analogWrite(IN4_PIN, nb);
+}
+#else
+#define SEQ_LEN 8
 const uint8_t halfStepSeq[8][4] = {
   {1, 0, 0, 0}, {1, 1, 0, 0}, {0, 1, 0, 0}, {0, 1, 1, 0},
   {0, 0, 1, 0}, {0, 0, 1, 1}, {0, 0, 0, 1}, {1, 0, 0, 1},
 };
 uint8_t seqIndex = 0;
+
+void applyPhase() {
+  for (uint8_t i = 0; i < 4; i++) digitalWrite(coilPins[i], halfStepSeq[seqIndex][i]);
+}
+#endif
 
 void motorRelease() {
   // 코일 전류 차단 (발열 방지)
@@ -43,12 +82,23 @@ void motorRelease() {
 
 void motorSetup() {
   for (uint8_t i = 0; i < 4; i++) pinMode(coilPins[i], OUTPUT);
+#if MICROSTEPS > 0
+  // 사인 양의 반쪽만 사용 (음수는 0) → 반대편 코일이 나머지 반쪽 담당
+  for (uint8_t i = 0; i < SEQ_LEN; i++) {
+    float s = sin(2.0 * PI * i / SEQ_LEN);
+    sineTable[i] = s > 0 ? (uint8_t)(s * 255 + 0.5) : 0;
+  }
+  // D9/D10(Timer1), D11/D3(Timer2) PWM 을 490Hz → 31kHz 로 (윙 소리 제거).
+  // Timer0(D5, D6, millis)은 건드리지 않음
+  TCCR1B = (TCCR1B & 0xF8) | 0x01;
+  TCCR2B = (TCCR2B & 0xF8) | 0x01;
+#endif
   motorRelease();
 }
 
 void motorStepOnce(bool forward) {
-  seqIndex = (seqIndex + (forward ? 1 : 7)) % 8;
-  for (uint8_t i = 0; i < 4; i++) digitalWrite(coilPins[i], halfStepSeq[seqIndex][i]);
+  seqIndex = (seqIndex + (forward ? 1 : SEQ_LEN - 1)) % SEQ_LEN;
+  applyPhase();
   position += forward ? 1 : -1;
 }
 
@@ -183,8 +233,12 @@ void printHelp() {
 void printStatus() {
   Serial.print(F("LED 핀=D")); Serial.print(LED_PIN);
   Serial.print(F(", 밝기="));   Serial.print(ledLevel);
-  Serial.print(F(" | 모터 IN1~4=D")); Serial.print(IN1_PIN);
-  Serial.print(F("~D"));        Serial.print(IN4_PIN);
+  Serial.print(F(" | 모터 IN1~4=D"));
+  for (uint8_t i = 0; i < 4; i++) {
+    if (i) Serial.print(F(",D"));
+    Serial.print(coilPins[i]);
+  }
+  Serial.print(F(", 마이크로스텝=")); Serial.print(MICROSTEPS);
   Serial.print(F(", 위치="));   Serial.print(position);
   Serial.print(F(", 남은 스텝=")); Serial.print(stepsRemaining);
   Serial.print(F(", 속도="));   Serial.print(stepSpeed);
