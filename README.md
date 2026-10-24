@@ -130,6 +130,31 @@ LED·LCD·도트·RGB·모터처럼 출력만 있는 부품은 응답만으로�
 | `STEP MOVE n` → 이동 완료 후 `OK STEP MOVE n` | `DHT` → `OK DHT temp hum` |
 | `STEP POS` → `OK STEP POS p`, `STEP RELEASE` | `LIGHT` → `OK LIGHT raw`, `RGB r g b` |
 
+## 4. 노트북(Windows PowerShell)에서 원격 제어
+
+아두이노는 라즈베리파이에 꽂혀 있고, 노트북에서는 `pi.ps1` 이 ssh 로 명령을 대신 실행합니다.
+
+```powershell
+git clone -b claude/sweet-newton-fud3n6 https://github.com/YonghoLee79/Attest.git
+cd Attest
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned   # 스크립트 실행 허용 (한 번)
+.\pi.ps1 setup-key        # 비밀번호 없이 접속 (한 번)
+.\pi.ps1 help
+```
+
+| 명령 | 동작 |
+|---|---|
+| `.\pi.ps1 update` / `upload` / `test -i` / `report` | 코드 갱신 / 펌웨어 업로드 / 통합 테스트 / 결과 파일 받기 |
+| `.\pi.ps1 led 255 0 0`, `led off`, `bright 128`, `pixel 3 0 0 255` | LED 스트립 |
+| `.\pi.ps1 step 512 [rpm]` | 스테핑 모터 (2048 = 1바퀴) |
+| `.\pi.ps1 servo 90`, `rgb 0 255 0`, `lcd "Hello" 1`, `dot heart` | 서보 / RGB / LCD / 도트 |
+| `.\pi.ps1 sensors` (`dist`, `dht`, `light`) | 센서 읽기 |
+| `.\pi.ps1 send ARD2 "SERVO 0" "SERVO 180"` | 프로토콜 명령 직접 |
+| `.\pi.ps1 console` | 대화형 (`ARD1 LED FILL 0 0 255`) |
+
+접속 주소가 다르면 `$env:PI_HOST = "user@주소"` 로 바꿉니다.
+리눅스에서는 포트를 열 때마다 아두이노가 리셋되는데, 첫 접속 때 이를 꺼 두므로 명령 사이에 LED·서보 상태가 유지됩니다.
+
 ## 문제 해결
 
 | 증상 | 확인할 것 |

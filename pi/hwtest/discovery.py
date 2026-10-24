@@ -5,6 +5,7 @@ PING 응답(PONG ARD1 / PONG ARD2)으로 어느 보드인지 판별한다.
 """
 import glob
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from .link import ArduinoLink, DeviceError, DeviceTimeout
 
@@ -23,15 +24,40 @@ def candidate_ports():
     return [(p, "") for p in sorted(glob.glob("/dev/ttyACM*") + glob.glob("/dev/ttyUSB*"))]
 
 
+def _keep_dtr_on_close(ser):
+    """포트를 닫아도 DTR 을 유지하게 해서 다음에 열 때 아두이노가 리셋되지 않게 한다.
+
+    돌려주는 값: 이번에 열 때 리셋이 일어났는지(HUPCL 이 켜져 있었는지).
+    리눅스 tty 설정은 장치가 연결돼 있는 동안 유지되므로, 부팅/재연결 후 첫 번째만 리셋된다.
+    """
+    try:
+        import termios
+        attrs = termios.tcgetattr(ser.fd)
+        was_reset = bool(attrs[2] & termios.HUPCL)
+        attrs[2] &= ~termios.HUPCL
+        termios.tcsetattr(ser.fd, termios.TCSANOW, attrs)
+        return was_reset
+    except Exception:  # Windows 등
+        return True
+
+
 def open_link(port, boot_wait=3.0):
     import serial  # pyserial
 
     ser = serial.Serial(port, BAUD, timeout=0.1)
     link = ArduinoLink(ser, name=port)
-    # 포트를 열면 아두이노가 리셋된다 -> READY 메시지를 기다린다.
-    if link.wait_for("READY", boot_wait) is None:
-        time.sleep(0.5)
+    if _keep_dtr_on_close(ser):
+        # 포트를 열면 아두이노가 리셋된다 -> READY 메시지를 기다린다.
+        if link.wait_for("READY", boot_wait) is None:
+            time.sleep(0.5)
     return link
+
+
+def _try_open(port):
+    try:
+        return open_link(port), None
+    except Exception as exc:
+        return None, exc
 
 
 def identify(link, tries=3):
@@ -65,11 +91,13 @@ def find_devices(ports=None):
         print("      - 아두이노가 라즈베리파이에 꽂혀 있다면 라즈베리파이에서 실행해야 합니다.")
         return found
 
-    for port, desc in candidates:
+    # 포트를 열면 보드가 리셋되어 2~3초씩 걸리므로 모든 포트를 동시에 연다.
+    with ThreadPoolExecutor(max_workers=len(candidates)) as pool:
+        opened = list(pool.map(_try_open, [p for p, _ in candidates]))
+
+    for (port, desc), (link, exc) in zip(candidates, opened):
         label = f"{port} ({desc})" if desc else port
-        try:
-            link = open_link(port)
-        except Exception as exc:  # 권한 문제, 다른 프로그램이 사용 중 등
+        if exc is not None:  # 권한 문제, 다른 프로그램이 사용 중 등
             print(f"  [!] {label} 열기 실패: {exc}")
             if "ermission" in str(exc):
                 print("      -> sudo usermod -aG dialout $USER 후 다시 로그인")
