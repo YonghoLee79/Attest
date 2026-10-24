@@ -3,15 +3,20 @@
 #
 #   ./upload.sh                                 # 포트 자동 판별(필요하면 USB 를 뽑았다 꽂으라고 안내)
 #   ./upload.sh /dev/ttyACM0 /dev/ttyACM1       # 1번 포트, 2번 포트 직접 지정
-#   FQBN=arduino:avr:nano ./upload.sh           # 우노가 아닌 보드
+#   FQBN=arduino:avr:nano ./upload.sh           # 우노가 아닌 보드 (이 경우 직접 컴파일)
+#   BUILD=1 ./upload.sh                         # .ino 를 고친 뒤 직접 컴파일해서 올릴 때
 #
-# arduino-cli 와 필요한 라이브러리가 없으면 자동으로 설치한다.
+# 우노는 firmware/ 에 미리 컴파일한 .hex 를 그대로 올린다(라즈베리파이 컴파일은 매우 느림).
 set -euo pipefail
 
 FQBN="${FQBN:-arduino:avr:uno}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
 SKETCH1="$DIR/arduino/arduino1_led_stepper"
 SKETCH2="$DIR/arduino/arduino2_sensors"
+HEX1="$DIR/firmware/arduino1_led_stepper.uno.hex"
+HEX2="$DIR/firmware/arduino2_sensors.uno.hex"
+PREBUILT=0
+[[ "$FQBN" == "arduino:avr:uno" && -z "${BUILD:-}" && -f "$HEX1" && -f "$HEX2" ]] && PREBUILT=1
 export PATH="$HOME/.local/bin:$PATH"
 
 list_ports() { ls /dev/ttyACM* /dev/ttyUSB* 2>/dev/null || true; }
@@ -44,12 +49,15 @@ else
   echo "[1/4] arduino-cli 있음: $(arduino-cli version | head -1)"
 fi
 
-echo "[2/4] AVR 코어 / 라이브러리 확인"
+echo "[2/4] AVR 코어 확인"
 if ! arduino-cli core list | grep -q '^arduino:avr'; then
   echo "  AVR 코어 설치 중... (처음 한 번, 몇 분 걸립니다)"
   arduino-cli core update-index
   arduino-cli core install arduino:avr
 fi
+if (( PREBUILT )); then
+  echo "[3/4] 미리 컴파일된 펌웨어 사용 (firmware/*.uno.hex) - 컴파일 생략"
+else
 # 라즈베리파이에서는 lib install 한 번에 수십 초가 걸리므로, 설치된 목록을 한 번만 읽고 없는 것만 설치한다.
 installed=$(arduino-cli lib list --format json)
 missing=()
@@ -72,6 +80,7 @@ for s in "$SKETCH1" "$SKETCH2"; do
   fi
   echo "  $(basename "$s"): $(grep -o 'Sketch uses [0-9]* bytes ([0-9]*%)' <<<"$out")"
 done
+fi
 
 # ---- 3. 어느 포트가 몇 번 보드인지 ----
 PORT1="${1:-}"
@@ -112,9 +121,10 @@ echo "2번 보드: $PORT2"
 
 # ---- 4. 업로드 ----
 echo "[4/4] 업로드"
-arduino-cli upload -b "$FQBN" -p "$PORT1" "$SKETCH1"
+if (( PREBUILT )); then UP1=(-i "$HEX1"); UP2=(-i "$HEX2"); else UP1=("$SKETCH1"); UP2=("$SKETCH2"); fi
+arduino-cli upload -b "$FQBN" -p "$PORT1" "${UP1[@]}"
 echo "  1번 보드 완료"
-arduino-cli upload -b "$FQBN" -p "$PORT2" "$SKETCH2"
+arduino-cli upload -b "$FQBN" -p "$PORT2" "${UP2[@]}"
 echo "  2번 보드 완료"
 
 echo
