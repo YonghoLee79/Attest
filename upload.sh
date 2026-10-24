@@ -50,7 +50,8 @@ else
 fi
 
 echo "[2/4] AVR 코어 확인"
-if ! arduino-cli core list | grep -q '^arduino:avr'; then
+# arduino-cli core list 는 라즈베리파이에서 수십 초 걸리므로 설치 폴더만 확인한다.
+if ! ls -d "$HOME"/.arduino15/packages/arduino/hardware/avr/*/ >/dev/null 2>&1; then
   echo "  AVR 코어 설치 중... (처음 한 번, 몇 분 걸립니다)"
   arduino-cli core update-index
   arduino-cli core install arduino:avr
@@ -121,10 +122,33 @@ echo "2번 보드: $PORT2"
 
 # ---- 4. 업로드 ----
 echo "[4/4] 업로드"
-if (( PREBUILT )); then UP1=(-i "$HEX1"); UP2=(-i "$HEX2"); else UP1=("$SKETCH1"); UP2=("$SKETCH2"); fi
-arduino-cli upload -b "$FQBN" -p "$PORT1" "${UP1[@]}"
+# 미리 컴파일된 hex 는 avrdude 로 바로 올린다(arduino-cli upload 는 시작만 수십 초 걸림).
+AVRDUDE=$(ls -d "$HOME"/.arduino15/packages/arduino/tools/avrdude/*/ 2>/dev/null | tail -1)
+flash() {  # flash 포트 hex|스케치
+  if (( PREBUILT )) && [[ -n "$AVRDUDE" ]]; then
+    # 우노 부트로더는 115200, 나노(구형 부트로더) 호환보드는 57600. 칩이 같아서 같은 hex 를 쓴다.
+    local baud
+    for baud in 115200 57600; do
+      echo "    avrdude ${baud}bps 시도"
+      if "$AVRDUDE/bin/avrdude" -C "$AVRDUDE/etc/avrdude.conf" -p atmega328p -c arduino \
+           -P "$1" -b "$baud" -D -U "flash:w:$2:i" -q -q; then
+        return 0
+      fi
+    done
+    echo "[!] $1 업로드 실패. 보드 종류(UNO/NANO 등)와 케이블을 확인하세요."
+    return 1
+  elif (( PREBUILT )); then
+    arduino-cli upload -b "$FQBN" -p "$1" -i "$2"
+  else
+    arduino-cli upload -b "$FQBN" -p "$1" "$2"
+  fi
+}
+if (( PREBUILT )); then SRC1="$HEX1"; SRC2="$HEX2"; else SRC1="$SKETCH1"; SRC2="$SKETCH2"; fi
+echo "  1번 보드 ($PORT1)"
+flash "$PORT1" "$SRC1"
 echo "  1번 보드 완료"
-arduino-cli upload -b "$FQBN" -p "$PORT2" "${UP2[@]}"
+echo "  2번 보드 ($PORT2)"
+flash "$PORT2" "$SRC2"
 echo "  2번 보드 완료"
 
 echo
