@@ -33,11 +33,17 @@ else
   echo "[1/4] arduino-cli 있음: $(arduino-cli version | head -1)"
 fi
 
-echo "[2/4] AVR 코어 / 라이브러리 확인"
-arduino-cli core update-index >/dev/null
-arduino-cli core list | grep -q '^arduino:avr' || arduino-cli core install arduino:avr
-arduino-cli lib install "Adafruit NeoPixel" "LiquidCrystal I2C" "LedControl" \
-  "DHT sensor library" "Adafruit Unified Sensor" "Servo" "Stepper" >/dev/null
+echo "[2/4] AVR 코어 / 라이브러리 확인 (처음에는 내려받느라 몇 분 걸립니다)"
+arduino-cli core update-index
+if ! arduino-cli core list | grep -q '^arduino:avr'; then
+  echo "  AVR 코어 설치 중..."
+  arduino-cli core install arduino:avr
+fi
+for lib in "Adafruit NeoPixel" "LiquidCrystal I2C" "LedControl" \
+           "DHT sensor library" "Adafruit Unified Sensor" "Servo" "Stepper"; do
+  echo "  라이브러리: $lib"
+  arduino-cli lib install "$lib" | grep -vE '^\S+@\S+ (downloaded|already)' || true
+done
 
 # ---- 2. 컴파일 (업로드 전에 오류를 먼저 확인) ----
 echo "[3/4] 컴파일 ($FQBN)"
