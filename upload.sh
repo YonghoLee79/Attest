@@ -16,6 +16,17 @@ export PATH="$HOME/.local/bin:$PATH"
 
 list_ports() { ls /dev/ttyACM* /dev/ttyUSB* 2>/dev/null || true; }
 
+# 포트 개수가 $1 개가 될 때까지 최대 $2 초 기다린다.
+wait_port_count() {
+  local want=$1 limit=$2 i n
+  for ((i = 0; i < limit * 2; i++)); do
+    n=$(list_ports | wc -l)
+    (( n == want )) && return 0
+    sleep 0.5
+  done
+  return 1
+}
+
 # ---- 1. arduino-cli / 코어 / 라이브러리 ----
 if ! command -v arduino-cli >/dev/null; then
   echo "[1/4] arduino-cli 설치"
@@ -66,22 +77,25 @@ if [[ -z "$PORT1" || -z "$PORT2" ]]; then
   fi
   echo
   echo "포트 2개 발견: ${PORTS[*]}"
-  echo ">> 1번 보드(LED 스트립 + 스테핑 모터)의 USB 케이블만 뽑고 Enter 를 누르세요."
-  read -r
-  sleep 1
-  mapfile -t LEFT < <(list_ports)
-  if (( ${#LEFT[@]} != 1 )); then
-    echo "[!] 남은 포트가 ${#LEFT[@]}개입니다(${LEFT[*]:-없음}). 한 개만 뽑고 다시 실행하세요."
+  # Enter 대신 포트 개수 변화를 감지한다(미리 눌린 키 입력에 영향받지 않음).
+  echo ">> 1번 보드(LED 스트립 + 스테핑 모터)의 USB 케이블을 뽑으세요... (60초 대기)"
+  if ! wait_port_count 1 60; then
+    echo "[!] 60초 안에 포트가 1개로 줄지 않았습니다. 다시 실행하세요."
     exit 1
   fi
+  mapfile -t LEFT < <(list_ports)
   PORT2="${LEFT[0]}"
-  echo ">> 이제 1번 보드를 다시 꽂고 Enter 를 누르세요."
-  read -r
-  sleep 2
+  echo "   감지됨: 남은 포트 $PORT2 = 2번 보드"
+  echo ">> 이제 1번 보드를 다시 꽂으세요... (60초 대기)"
+  if ! wait_port_count 2 60; then
+    echo "[!] 60초 안에 1번 보드가 다시 잡히지 않았습니다. 케이블을 확인하고 다시 실행하세요."
+    exit 1
+  fi
+  sleep 2  # 꽂은 직후 포트가 안정될 때까지
   PORT1=""
   for p in $(list_ports); do [[ "$p" != "$PORT2" ]] && PORT1="$p"; done
   if [[ -z "$PORT1" ]]; then
-    echo "[!] 1번 보드 포트를 찾지 못했습니다. 다시 꽂았는지 확인하세요."
+    echo "[!] 1번 보드 포트를 찾지 못했습니다. 다시 실행하세요."
     exit 1
   fi
 fi
