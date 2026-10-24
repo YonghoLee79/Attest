@@ -63,6 +63,13 @@ switch ($Action.ToLower()) {
         if ($script:rc -eq 0) { Write-Host "report.json 을 현재 폴더에 받았습니다." }
     }
     "ports" { Invoke-Pi "ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null || echo '포트 없음'; command -v lsof >/dev/null && lsof /dev/ttyUSB* /dev/ttyACM* 2>/dev/null" }
+    "monitor" {
+        # 기존 th-monitor 서비스(온습도 웹 서버)가 아두이노 포트를 잡고 있으면 테스트/업로드가 안 된다.
+        $op = if ($Rest.Count -ge 1) { $Rest[0] } else { "status" }
+        if ($op -notin @("stop", "start", "status")) { Write-Host "사용법: .\pi.ps1 monitor stop|start|status"; exit 2 }
+        if ($op -eq "status") { Invoke-Pi "systemctl status th-monitor --no-pager | head -3" }
+        else { Invoke-Pi "sudo systemctl $op th-monitor && systemctl is-active th-monitor" -Tty }
+    }
     "diag" { Invoke-Pi "cd $Repo && ./diag.sh $($Rest -join ' ')" -Tty }
     "console" { Invoke-Pi "cd $Repo/pi && python3 -m hwtest.send" -Tty }
     "shell" { Invoke-Pi "cd $Repo && exec bash -l" -Tty }
@@ -126,6 +133,7 @@ switch ($Action.ToLower()) {
     .\pi.ps1 update              노트북 + 라즈베리파이 코드 최신으로
     .\pi.ps1 upload [포트1 포트2] 아두이노 펌웨어 업로드
     .\pi.ps1 ports               USB 포트 / 사용 중인 프로그램 확인
+    .\pi.ps1 monitor stop|start  기존 th-monitor 서비스 멈춤/시작 (테스트 전 stop)
     .\pi.ps1 diag [포트]         업로드가 안 될 때 보드 종류/원인 진단 (보드에 쓰지 않음)
 
   테스트
