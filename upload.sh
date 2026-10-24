@@ -120,6 +120,15 @@ fi
 echo "1번 보드: $PORT1"
 echo "2번 보드: $PORT2"
 
+# 다른 프로그램이 포트를 잡고 있으면 업로드 응답을 가로채 실패하므로 미리 알린다.
+busy=$(fuser "$PORT1" "$PORT2" 2>/dev/null | xargs -n1 2>/dev/null | sort -u || true)
+if [[ -n "$busy" ]]; then
+  echo "[!] 다른 프로그램이 포트를 사용 중입니다:"
+  ps -o pid,cmd -p $busy
+  echo "    해당 프로그램을 멈춘 뒤 다시 실행하세요. 예) kill $busy  (서비스라면 sudo systemctl stop 서비스명)"
+  exit 1
+fi
+
 # ---- 4. 업로드 ----
 echo "[4/4] 업로드"
 # 미리 컴파일된 hex 는 avrdude 로 바로 올린다(arduino-cli upload 는 시작만 수십 초 걸림).
