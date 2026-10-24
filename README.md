@@ -54,6 +54,15 @@ LED 개수(`LED_COUNT`), DHT 종류(`DHT_TYPE`), RGB 공통 애노드 여부(`RG
 
 ## 2. 펌웨어 업로드
 
+라즈베리파이에서 한 번에 (arduino-cli·라이브러리 설치 → 컴파일 → 보드 판별 → 업로드):
+
+```bash
+./upload.sh                              # 포트를 모르면 안내에 따라 1번 보드 USB 를 뽑았다 꽂기
+./upload.sh /dev/ttyACM0 /dev/ttyACM1    # 1번 포트, 2번 포트를 알고 있으면
+```
+
+직접 하려면:
+
 Arduino IDE 라이브러리 매니저에서 설치: **Adafruit NeoPixel, LiquidCrystal I2C, LedControl,
 DHT sensor library(Adafruit), Adafruit Unified Sensor, Servo, Stepper**
 
