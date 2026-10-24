@@ -45,6 +45,16 @@ def identify(link, tries=3):
     return None
 
 
+def sniff(link, seconds=1.5):
+    """PING 을 한 번 더 보내고 돌아오는 바이트를 그대로 모은다(진단용)."""
+    link.transport.write(b"PING\n")
+    data = b""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        data += link.transport.readline()
+    return data
+
+
 def find_devices(ports=None):
     """{'ARD1': ArduinoLink, 'ARD2': ArduinoLink} 를 돌려준다(찾은 것만)."""
     found = {}
@@ -72,7 +82,13 @@ def find_devices(ports=None):
             found[dev_id] = link
             print(f"  [+] {label} -> {dev_id}")
         else:
-            print(f"  [?] {label}: PING 응답 없음({dev_id})")
-            print("      -> 이 저장소의 테스트 펌웨어(.ino)가 업로드되어 있는지 확인")
+            raw = sniff(link)
+            print(f"  [?] {label}: PING 응답 없음({dev_id}), 받은 데이터: {raw[:80]!r}")
+            if not raw:
+                print("      -> 아무 데이터도 없음: 펌웨어 업로드 실패 또는 다른 프로그램이 포트 사용 중")
+            elif any(b > 0x7E or (b < 0x20 and b not in b"\r\n") for b in raw):
+                print("      -> 깨진 문자: 통신 속도 불일치(다른 펌웨어가 올라가 있음)")
+            else:
+                print("      -> 다른 펌웨어가 응답 중: 테스트 펌웨어를 다시 업로드하세요")
             link.close()
     return found
