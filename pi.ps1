@@ -60,6 +60,7 @@ switch ($Action.ToLower()) {
         if ($script:rc -eq 0) { Write-Host "report.json 을 현재 폴더에 받았습니다." }
     }
     "ports" { Invoke-Pi "ls -l /dev/ttyUSB* /dev/ttyACM* 2>/dev/null || echo '포트 없음'; command -v lsof >/dev/null && lsof /dev/ttyUSB* /dev/ttyACM* 2>/dev/null" }
+    "diag" { Invoke-Pi "cd $Repo && ./diag.sh $($Rest -join ' ')" -Tty }
     "console" { Invoke-Pi "cd $Repo/pi && python3 -m hwtest.send" -Tty }
     "shell" { Invoke-Pi "cd $Repo && exec bash -l" -Tty }
     "send" {
@@ -122,6 +123,7 @@ switch ($Action.ToLower()) {
     .\pi.ps1 update              라즈베리파이 코드 최신으로
     .\pi.ps1 upload [포트1 포트2] 아두이노 펌웨어 업로드
     .\pi.ps1 ports               USB 포트 / 사용 중인 프로그램 확인
+    .\pi.ps1 diag [포트]         업로드가 안 될 때 보드 종류/원인 진단 (보드에 쓰지 않음)
 
   테스트
     .\pi.ps1 test                통합 테스트 (자동 판정)
