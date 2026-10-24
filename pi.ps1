@@ -50,6 +50,9 @@ switch ($Action.ToLower()) {
         if ($script:rc -eq 0) { Write-Host "완료. 이제 비밀번호 없이 접속됩니다." }
     }
     "update" {
+        Write-Host "== 노트북"
+        git -C $PSScriptRoot pull
+        Write-Host "== 라즈베리파이"
         Invoke-Pi "if [ -d $Repo ]; then cd $Repo && git pull; else git clone -b $Branch https://github.com/YonghoLee79/Attest.git $Repo; fi"
     }
     "upload" { Invoke-Pi "cd $Repo && ./upload.sh $($Rest -join ' ')" -Tty }
@@ -120,7 +123,7 @@ switch ($Action.ToLower()) {
 
   준비
     .\pi.ps1 setup-key           ssh 키 등록 (비밀번호 입력 없이 쓰려면 한 번)
-    .\pi.ps1 update              라즈베리파이 코드 최신으로
+    .\pi.ps1 update              노트북 + 라즈베리파이 코드 최신으로
     .\pi.ps1 upload [포트1 포트2] 아두이노 펌웨어 업로드
     .\pi.ps1 ports               USB 포트 / 사용 중인 프로그램 확인
     .\pi.ps1 diag [포트]         업로드가 안 될 때 보드 종류/원인 진단 (보드에 쓰지 않음)
