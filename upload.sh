@@ -121,7 +121,7 @@ echo "1번 보드: $PORT1"
 echo "2번 보드: $PORT2"
 
 # 다른 프로그램이 포트를 잡고 있으면 업로드 응답을 가로채 실패하므로 미리 알린다.
-busy=$(fuser "$PORT1" "$PORT2" 2>/dev/null | xargs -n1 2>/dev/null | sort -u || true)
+busy=$(fuser "$PORT1" "$PORT2" 2>/dev/null | xargs -n1 2>/dev/null | sort -u | xargs || true)
 if [[ -n "$busy" ]]; then
   echo "[!] 다른 프로그램이 포트를 사용 중입니다:"
   ps -o pid,cmd -p $busy
