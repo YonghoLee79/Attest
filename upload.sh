@@ -44,17 +44,25 @@ else
   echo "[1/4] arduino-cli 있음: $(arduino-cli version | head -1)"
 fi
 
-echo "[2/4] AVR 코어 / 라이브러리 확인 (처음에는 내려받느라 몇 분 걸립니다)"
-arduino-cli core update-index
+echo "[2/4] AVR 코어 / 라이브러리 확인"
 if ! arduino-cli core list | grep -q '^arduino:avr'; then
-  echo "  AVR 코어 설치 중..."
+  echo "  AVR 코어 설치 중... (처음 한 번, 몇 분 걸립니다)"
+  arduino-cli core update-index
   arduino-cli core install arduino:avr
 fi
+# 라즈베리파이에서는 lib install 한 번에 수십 초가 걸리므로, 설치된 목록을 한 번만 읽고 없는 것만 설치한다.
+installed=$(arduino-cli lib list --format json)
+missing=()
 for lib in "Adafruit NeoPixel" "LiquidCrystal I2C" "LedControl" \
            "DHT sensor library" "Adafruit Unified Sensor" "Servo" "Stepper"; do
-  echo "  라이브러리: $lib"
-  arduino-cli lib install "$lib" | grep -vE '^\S+@\S+ (downloaded|already)' || true
+  grep -qF "\"name\": \"$lib\"" <<<"$installed" || missing+=("$lib")
 done
+if (( ${#missing[@]} )); then
+  echo "  라이브러리 설치 중: ${missing[*]} (1~2분 걸릴 수 있습니다)"
+  arduino-cli lib install "${missing[@]}"
+else
+  echo "  라이브러리 모두 설치됨"
+fi
 
 # ---- 2. 컴파일 (업로드 전에 오류를 먼저 확인) ----
 echo "[3/4] 컴파일 ($FQBN)"
