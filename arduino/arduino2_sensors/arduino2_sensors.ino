@@ -27,9 +27,9 @@
 
 // ---- 핀 / 하드웨어 설정 ----
 const uint8_t LCD_ADDR = 0x27;               // 0x3F 인 모듈도 있음
-const uint8_t DOT_DIN = 12, DOT_CLK = 11, DOT_CS = 10;
+const uint8_t DOT_DIN = 13, DOT_CLK = 10, DOT_CS = 11;
 const uint8_t SERVO_PIN = 9;
-const uint8_t US_TRIG = 7, US_ECHO = 8;
+const uint8_t US_TRIG = 8, US_ECHO = 7;
 const uint8_t DHT_PIN = 2;
 #define DHT_TYPE DHT11                        // DHT22 이면 변경
 const uint8_t LIGHT_PIN = A0;

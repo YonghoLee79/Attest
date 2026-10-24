@@ -40,12 +40,12 @@
 | 부품 | 핀 |
 |---|---|
 | LCD I2C SDA / SCL | A4 / A5 (주소 0x27, 안 보이면 0x3F 로 변경) |
-| MAX7219 DIN / CLK / CS | D12 / D11 / D10 |
-| 서보 신호 | D9 (서보 전원은 외부 5V 권장) |
-| HC-SR04 TRIG / ECHO | D7 / D8 |
-| DHT DATA | D2 (10kΩ 풀업) |
-| 조도 센서 | A0 (CDS–A0–10kΩ–GND 분압) |
-| RGB LED R / G / B | D3 / D5 / D6 (각 220Ω) |
+| MAX7219 DIN / CLK / CS | D13 / D10 / D11 |
+| 서보 신호 | D9 (빨강: 외부 5V, 검정/갈색: GND) |
+| HC-SR04 TRIG / ECHO | D8 / D7 |
+| DHT11 DATA | D2 (3핀 모듈: VCC / DATA / GND) |
+| 조도 센서 모듈 AO | A0 |
+| RGB LED R / G / B | D3 / D5 / D6 (각 220Ω), 공통(가장 긴 다리) → GND (공통 캐소드) |
 
 > LED 스트립·스테핑 모터·서보는 전류가 커서 라즈베리파이 USB 전원만으로는 보드가 리셋될 수 있습니다.
 > 외부 5V 전원을 쓰고 GND 를 반드시 공통으로 묶으세요.
